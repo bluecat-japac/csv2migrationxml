@@ -23,7 +23,7 @@ import csv
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-VERSION = "1"
+VERSION = "1.2"
 DOCTYPE_QUALIFIED_NAME = 'data'
 DOCTYPE_PUBLIC_ID = "-//BlueCat Networks/Proteus Migration Specification 9.0//EN"
 DOCTYPE_SYSTEM_ID = "http://www.bluecatnetworks.com/proteus-migration-9.0.dtd"
@@ -78,34 +78,12 @@ class GenericRecordType():
 ###
 # Exception
 ###
-
-
-class NotFoundException(Exception):
-    def __init__(self, title):
-        self.msg = "Not found {} in line {}".format(title)
-
-    def __str__(self):
-        return(self.msg)
-
-
 class FieldEmptyException(Exception):
     def __init__(self, title):
         self.msg = "{} is empty.".format(title)
 
     def __str__(self):
         return(self.msg)
-
-
-def validate_input_row(row, line_num):
-    if not row.get(Header.OPTYPE, None):
-        raise NotFoundException(Header.OPTYPE, line_num)
-    elif not row.get(Header.CONFIG, None):
-        raise NotFoundException(Header.CONFIG, line_num)
-    elif not row.get(Header.VIEW, None):
-        raise NotFoundException(Header.VIEW, line_num)
-    elif not row.get(Header.PARENT_ZONE, None):
-        raise NotFoundException(Header.PARENT_ZONE, line_num)
-
 
 class CsvToXml():
     def __init__(self):
@@ -126,9 +104,9 @@ class CsvToXml():
         return configuration
 
     def __handle_view(self, config_name, name):
-        configuration = self.__handle_configuation(config_name)
         if not name:
             raise FieldEmptyException(Header.VIEW)
+        configuration = self.__handle_configuation(config_name)
         views = configuration.findall(
             "./{}[@name='{}']".format(OpType.VIEW, name))
         if len(views) > 0:
@@ -143,7 +121,7 @@ class CsvToXml():
         list_zone = full_zone_name.split('.')
         list_zone.reverse()
         parent = view
-        # Example after reverse
+        # Example after reverse:
         # list_zone = [corp1, test1, sub1]
         for index in range(len(list_zone)):
             p_zone = list_zone[index]
@@ -168,8 +146,10 @@ class CsvToXml():
         parent_zone = row.get(Header.PARENT_ZONE)
         if not parent_zone:
             raise FieldEmptyException(Header.PARENT_ZONE)
-        zone = self.__handle_zone(config_name, view_name, parent_zone)
         record_type = row.get(Header.RECORD_TYPE)
+        if not record_type:
+            raise FieldEmptyException(Header.RECORD_TYPE)
+        zone = self.__handle_zone(config_name, view_name, parent_zone)
         # Lower record_type
         record_type = record_type.lower()
         if record_type == RecordType.HOST:
@@ -213,11 +193,15 @@ class CsvToXml():
         #     "./{}[@name='{}']".format(RecordType.HOST, name))
         # if len(host_records) > 0:
         #     return host_records[0]
+        if not address:
+            raise FieldEmptyException(Header.HOST_ADDRESS)
         host_record = ET.SubElement(zone, RecordType.HOST)
         host_record.set('name', name)
         host_record.set('address', address)
-        host_record.set('ttl', ttl)
-        host_record.set('on-exist', on_exist)
+        if ttl:
+            host_record.set('ttl', ttl)
+        if on_exist:
+            host_record.set('on-exist', on_exist)
         return host_record
 
     def __handle_record_srv(self, zone, name, priority, weight, port, host, ttl, on_exist):
@@ -231,8 +215,10 @@ class CsvToXml():
         srv_record.set('weight', weight)
         srv_record.set('port', port)
         srv_record.set('host', host)
-        srv_record.set('ttl', ttl)
-        srv_record.set('on-exist', on_exist)
+        if ttl:
+            srv_record.set('ttl', ttl)
+        if on_exist:
+            srv_record.set('on-exist', on_exist)
         return srv_record
 
     def __handle_record_naptr(self, zone, name, order, preference, service, replacement, flags, ttl, on_exist, regexp):
@@ -242,14 +228,22 @@ class CsvToXml():
         #     return naptr_records[0]
         naptr_record = ET.SubElement(zone, RecordType.NAPTR)
         naptr_record.set('name', name)
-        naptr_record.set('order', order)
-        naptr_record.set('preference', preference)
-        naptr_record.set('service', service)
-        naptr_record.set('replacement', replacement)
-        naptr_record.set('flags', flags)
-        naptr_record.set('regexp', regexp)
-        naptr_record.set('ttl', ttl)
-        naptr_record.set('on-exist', on_exist)
+        if order:
+            naptr_record.set('order', order)
+        if preference:
+            naptr_record.set('preference', preference)
+        if service:
+            naptr_record.set('service', service)
+        if replacement:
+            naptr_record.set('replacement', replacement)
+        if flags:
+            naptr_record.set('flags', flags)
+        if regexp:
+            naptr_record.set('regexp', regexp)
+        if ttl:
+            naptr_record.set('ttl', ttl)
+        if on_exist:
+            naptr_record.set('on-exist', on_exist)
         return naptr_record
 
     def __handle_record_generic(self, zone, name, type, rdata, ttl, on_exist):
@@ -257,23 +251,33 @@ class CsvToXml():
         #     "./{}[@name='{}']".format(RecordType.GENERIC, name))
         # if len(generic_records) > 0:
         #     return generic_records[0]
+        if not rdata:
+            raise FieldEmptyException(Header.R_DATA)
         generic_record = ET.SubElement(zone, RecordType.GENERIC)
         generic_record.set('name', name)
         generic_record.set('type', type.upper())
         generic_record.set('rdata', rdata)
-        generic_record.set('ttl', ttl)
-        generic_record.set('on-exist', on_exist)
+        if ttl:
+            generic_record.set('ttl', ttl)
+        if on_exist:
+            generic_record.set('on-exist', on_exist)
         return generic_record
 
     def extract(self, row, line_num):
         optype = row.get(Header.OPTYPE)
-        if optype == OpType.REMARK:
+        if not optype and [value for value in list(row.values()) if value]:
+            # If optype is empty and has another value in this row 
+            # Raise exception
+            raise FieldEmptyException(Header.OPTYPE)
+        elif optype == OpType.REMARK:
             pass
         elif optype == OpType.CONFIG:
             self.__handle_configuation(row.get(Header.CONFIG))
         elif optype == OpType.VIEW:
             self.__handle_view(row.get(Header.CONFIG), row.get(Header.VIEW))
         elif optype == OpType.ZONE:
+            if not row.get(Header.NAME):
+                raise FieldEmptyException(Header.NAME)
             self.__handle_zone(
                 row.get(Header.CONFIG), row.get(Header.VIEW), row.get(
                     Header.NAME) + '.' + row.get(Header.PARENT_ZONE),
@@ -293,7 +297,7 @@ class CsvToXml():
             f.write(xml_data.toprettyxml(indent="  ", encoding=encode_type))
 
 
-def do(file_name, logger, out_file):
+def execute(file_name, logger, out_file):
     csv_to_xml = CsvToXml()
     with open(file_name, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
@@ -334,27 +338,40 @@ def get_logger(is_debug=False):
     return logger
 
 
+def validate_cmd_input(parser):
+    # Get comment input and options
+    (options, args) = parser.parse_args()
+    out_file = options.output_filename
+    is_debug = True if options.debug else False
+
+    csv_suffix = '.csv'
+    if len(args) < 1:
+        parser.print_help()
+        parser.exit()
+    file_name = args[0]
+    if not os.path.isfile(file_name) or not file_name.endswith(csv_suffix):
+        parser.error(msg="{}: No such file csv".format(file_name))
+    return file_name, out_file, is_debug
+
+
 if __name__ == '__main__':
     from optparse import OptionParser
 
     parser = OptionParser(version="%prog " + VERSION,
                           usage='%prog [options] SOURCE_CSV')
     parser.disable_interspersed_args()
-    parser.add_option('-o', '--output', dest='output', type='str', default='output.xml',
+    parser.add_option('-o', '--output', dest='output_filename', type='str', default='output.xml',
                       help="Output XML file name (Default: output.xml)")
     parser.add_option("-d", action="store_true", dest="debug",
                       help="Enable debug mode (Default: Disable)")
-    # Get comment input and options
-    (options, args) = parser.parse_args()
-    file_name = args[0]
-    out_file = options.output
-    is_debug = True if options.debug else False
+    
+    in_file, out_file, is_debug = validate_cmd_input(parser)
     logger = get_logger(is_debug)
 
-    logger.info("Start to convert file '{}'".format(file_name))
-    logger.debug("Python version: {}".format(sys.version))
     try:
-        do(file_name, logger, out_file)
+        logger.info("Start to convert file '{}'".format(in_file))
+        logger.debug("Python version: {}".format(sys.version))
+        execute(in_file, logger, out_file)
     except Exception:
         logger.error(traceback.format_exc())
     finally:
