@@ -23,7 +23,7 @@ import csv
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-VERSION = "1.2"
+VERSION = "1.3"
 DOCTYPE_QUALIFIED_NAME = 'data'
 DOCTYPE_PUBLIC_ID = "-//BlueCat Networks/Proteus Migration Specification 9.0//EN"
 DOCTYPE_SYSTEM_ID = "http://www.bluecatnetworks.com/proteus-migration-9.0.dtd"
@@ -54,6 +54,9 @@ class Header():
     SRV_PORT = 'SRV-Port'
     SRV_HOST = 'SRV-Host'
 
+    @classmethod
+    def all(cls):
+        return [value for name, value in vars(cls).items() if name.isupper()]
 
 class OpType():
     REMARK = "remark"
@@ -85,13 +88,20 @@ class FieldEmptyException(Exception):
     def __str__(self):
         return(self.msg)
 
+class HeaderMissingException(Exception):
+    def __init__(self, header):
+        self.msg = "Header '{}' is missing.".format(header)
+
+    def __str__(self):
+        return(self.msg)
+
 class CsvToXml():
     def __init__(self):
         self.tree = ET.ElementTree()
         self.root = ET.Element('data')
         self.tree._setroot(self.root)
 
-    def __handle_configuation(self, name):
+    def __handle_configuation(self, name, on_exist=""):
         if not name:
             raise FieldEmptyException(Header.CONFIG)
         configurations = self.root.findall(
@@ -101,9 +111,11 @@ class CsvToXml():
         # Create configuration
         configuration = ET.SubElement(self.root, "configuration")
         configuration.set('name', name)
+        if on_exist:
+            configuration.set('on-exist', on_exist)
         return configuration
 
-    def __handle_view(self, config_name, name):
+    def __handle_view(self, config_name, name, on_exist=""):
         if not name:
             raise FieldEmptyException(Header.VIEW)
         configuration = self.__handle_configuation(config_name)
@@ -114,6 +126,8 @@ class CsvToXml():
         # Create view
         view = ET.SubElement(configuration, OpType.VIEW)
         view.set('name', name)
+        if on_exist:
+            view.set('on-exist', on_exist)
         return view
 
     def __handle_zone(self, config_name, view_name, full_zone_name, is_deploy=False, on_exist=""):
@@ -266,15 +280,17 @@ class CsvToXml():
     def extract(self, row, line_num):
         optype = row.get(Header.OPTYPE)
         if not optype and [value for value in list(row.values()) if value]:
-            # If optype is empty and has another value in this row 
+            # If optype is empty and has another value in this row
             # Raise exception
             raise FieldEmptyException(Header.OPTYPE)
         elif optype == OpType.REMARK:
             pass
         elif optype == OpType.CONFIG:
-            self.__handle_configuation(row.get(Header.CONFIG))
+            self.__handle_configuation(
+                row.get(Header.CONFIG), row.get(Header.ON_EXIST))
         elif optype == OpType.VIEW:
-            self.__handle_view(row.get(Header.CONFIG), row.get(Header.VIEW))
+            self.__handle_view(row.get(Header.CONFIG), row.get(
+                Header.VIEW), row.get(Header.ON_EXIST))
         elif optype == OpType.ZONE:
             if not row.get(Header.NAME):
                 raise FieldEmptyException(Header.NAME)
@@ -302,6 +318,7 @@ def execute(file_name, logger, out_file):
     with open(file_name, mode='r') as csv_file:
         csv_reader = csv.DictReader(csv_file)
         line_count = 0
+        validate_header(csv_reader.fieldnames)
         for row in csv_reader:
             if line_count == 0:
                 line_count += 1
@@ -338,6 +355,19 @@ def get_logger(is_debug=False):
     return logger
 
 
+def validate_header(actual_headers):
+    """Validate Headers Get From CSV File
+    
+    Keyword arguments:
+    argument -actual_headers- list header get from CSV File
+    Return: Exception if header expect not in list header from CSV file
+    - Do nothing if actual_headers is enough
+    """
+    expect_headers = Header.all()
+    for header in expect_headers:
+        if header not in actual_headers:
+            raise HeaderMissingException(header)
+
 def validate_cmd_input(parser):
     # Get comment input and options
     (options, args) = parser.parse_args()
@@ -364,7 +394,7 @@ if __name__ == '__main__':
                       help="Output XML file name (Default: output.xml)")
     parser.add_option("-d", action="store_true", dest="debug",
                       help="Enable debug mode (Default: Disable)")
-    
+
     in_file, out_file, is_debug = validate_cmd_input(parser)
     logger = get_logger(is_debug)
 
@@ -372,6 +402,8 @@ if __name__ == '__main__':
         logger.info("Start to convert file '{}'".format(in_file))
         logger.debug("Python version: {}".format(sys.version))
         execute(in_file, logger, out_file)
+    except HeaderMissingException as header_ex:
+        logger.error(str(header_ex))
     except Exception:
         logger.error(traceback.format_exc())
     finally:
