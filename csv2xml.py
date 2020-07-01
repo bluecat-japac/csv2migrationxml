@@ -1,4 +1,4 @@
-# Copyright 2019 BlueCat Networks (USA) Inc. and its affiliates
+# Copyright 2020 BlueCat Networks (USA) Inc. and its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,13 +23,13 @@ import csv
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
-VERSION = "1.3"
+VERSION = "1.4"
 DOCTYPE_QUALIFIED_NAME = 'data'
 DOCTYPE_PUBLIC_ID = "-//BlueCat Networks/Proteus Migration Specification 9.0//EN"
 DOCTYPE_SYSTEM_ID = "http://www.bluecatnetworks.com/proteus-migration-9.0.dtd"
 LOG_PATH = 'logs'
 LOG_NAME = 'convert'
-
+EXPECT_ZONE_DEPLOY_FLAG = ['true', 'false']
 
 class Header():
     OPTYPE = 'OpType'
@@ -130,7 +130,7 @@ class CsvToXml():
             view.set('on-exist', on_exist)
         return view
 
-    def __handle_zone(self, config_name, view_name, full_zone_name, is_deploy=False, on_exist=""):
+    def __handle_zone(self, config_name, view_name, full_zone_name, deploy="", on_exist=""):
         view = self.__handle_view(config_name, view_name)
         list_zone = full_zone_name.split('.')
         list_zone.reverse()
@@ -146,8 +146,8 @@ class CsvToXml():
             else:
                 zone = ET.SubElement(parent, OpType.ZONE)
                 zone.set('name', p_zone)
-                if index == len(list_zone)-1 and is_deploy:
-                    zone.set('deployable', str(is_deploy).lower())
+                if index == len(list_zone)-1 and deploy.lower() in EXPECT_ZONE_DEPLOY_FLAG:
+                    zone.set('deployable', deploy.lower())
                 if index == len(list_zone)-1 and on_exist:
                     zone.set('on-exist', on_exist)
                 parent = zone
@@ -297,7 +297,7 @@ class CsvToXml():
             self.__handle_zone(
                 row.get(Header.CONFIG), row.get(Header.VIEW), row.get(
                     Header.NAME) + '.' + row.get(Header.PARENT_ZONE),
-                bool(row.get(Header.ZONE_DEPLOY_FLAG)), row.get(Header.ON_EXIST))
+                row.get(Header.ZONE_DEPLOY_FLAG), row.get(Header.ON_EXIST))
         elif optype == OpType.RECORD:
             self.__handle_record(row)
 
